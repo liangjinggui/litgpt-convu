@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, ConcatDataset
 from torchmetrics import RunningMean
 
 from litgpt.args import EvalArgs, TrainArgs
-from litgpt.data import Alpaca, DataModule
+from litgpt.data import DuRecDial, DataModule
 from litgpt.generate.base import generate
 from litgpt.lora import GPT, Block, Config, lora_filter, mark_only_lora_as_trainable
 from litgpt.prompts import save_prompt_style
@@ -45,7 +45,7 @@ from litgpt.utils import (
 
 def setup(
     checkpoint_dir: Path,
-    out_dir: Path = Path("out/finetune/lora"),
+    out_dir: Path = Path("out/finetune/lora_convint"),
     precision: Optional[str] = None,
     quantize: Optional[Literal["bnb.nf4", "bnb.nf4-dq", "bnb.fp4", "bnb.fp4-dq", "bnb.int8-training"]] = None,
     devices: Union[int, str] = 1,
@@ -60,6 +60,14 @@ def setup(
     lora_mlp: bool = False,
     lora_head: bool = False,
     data: Optional[DataModule] = None,
+    train_data_path: Path = None,
+    dev_data_path: Path = None,
+    test_data_path: Path = None,
+    train_mid_convint_path: Path = None,
+    dev_mid_convint_path: Path = None,
+    test_mid_convint_path: Path = None,
+    dev_high_convint_path: Path = None,
+    test_high_convint_path: Path = None,
     train: TrainArgs = TrainArgs(
         save_interval=1000,
         log_interval=1,
@@ -94,7 +102,7 @@ def setup(
         lora_projection: Whether to apply LoRA to the output projection in the attention block.
         lora_mlp: Whether to apply LoRA to the weights of the MLP in the attention block.
         lora_head: Whether to apply LoRA to output head in GPT.
-        data: Data-related arguments. If not provided, the default is ``litgpt.data.Alpaca``.
+        data: Data-related arguments. If not provided, the default is ``litgpt.data.DuRecDial``.
         train: Training-related arguments. See ``litgpt.args.TrainArgs`` for details.
         eval: Evaluation-related arguments. See ``litgpt.args.EvalArgs`` for details.
         optimizer: An optimizer name (such as "AdamW") or config.
@@ -104,7 +112,7 @@ def setup(
     """
     checkpoint_dir = auto_download_checkpoint(model_name=checkpoint_dir, access_token=access_token)
     pprint(locals())
-    data = Alpaca() if data is None else data
+    data = DuRecDial() if data is None else data
     devices = parse_devices(devices)
     out_dir = init_out_dir(out_dir)
 
@@ -166,7 +174,11 @@ def setup(
     if torch.cuda.is_available() and devices > 1:
         check_nvlink_connectivity(fabric)
 
-    fabric.launch(main, devices, seed, config, data, checkpoint_dir, out_dir, train, eval, optimizer)
+    fabric.launch(main, devices, seed, config, data, 
+                  train_data_path, dev_data_path, test_data_path,
+                  train_mid_convint_path, dev_mid_convint_path, test_mid_convint_path,
+                  dev_high_convint_path, test_high_convint_path,
+                  checkpoint_dir, out_dir, train, eval, optimizer)
 
 
 def main(
@@ -175,6 +187,14 @@ def main(
     seed: int,
     config: Config,
     data: DataModule,
+    train_data_path: Path,
+    dev_data_path: Path,
+    test_data_path: Path,
+    train_mid_convint_path: Path,
+    dev_mid_convint_path: Path,
+    test_mid_convint_path: Path,
+    dev_high_convint_path: Path,
+    test_high_convint_path: Path,
     checkpoint_dir: Path,
     out_dir: Path,
     train: TrainArgs,
@@ -184,7 +204,18 @@ def main(
     validate_args(train, eval)
 
     tokenizer = Tokenizer(checkpoint_dir)
-    train_dataloader, val_dataloader = get_dataloaders(fabric, data, tokenizer, train)
+    train_dataloader, val_dataloader = get_dataloaders(fabric=fabric, 
+                                                       data=data, 
+                                                       train_data_path=train_data_path,
+                                                       dev_data_path=dev_data_path,
+                                                       test_data_path=test_data_path,
+                                                       train_mid_convint_path=train_mid_convint_path,
+                                                       dev_mid_convint_path=dev_mid_convint_path,
+                                                       test_mid_convint_path=test_mid_convint_path,
+                                                       dev_high_convint_path=dev_high_convint_path,
+                                                       test_high_convint_path=test_high_convint_path,
+                                                       tokenizer=tokenizer, 
+                                                       train=train)
     steps_per_epoch = len(train_dataloader) // train.gradient_accumulation_iters(devices)
     lr_max_steps = min(train.epochs * steps_per_epoch, (train.max_steps or float("inf")))
 
@@ -420,10 +451,31 @@ def get_lr_scheduler(optimizer, warmup_steps: int, max_steps: int):
     return torch.optim.lr_scheduler.SequentialLR(optimizer, [scheduler1, scheduler2], milestones=[warmup_steps])
 
 
-def get_dataloaders(
-    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs
-) -> Tuple[DataLoader, DataLoader]:
-    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=train.max_seq_length)
+def get_dataloaders(fabric: L.Fabric, 
+                    data: DataModule, 
+                    train_data_path: Path,
+                    dev_data_path: Path,
+                    test_data_path: Path,
+                    train_mid_convint_path: Path,
+                    dev_mid_convint_path: Path,
+                    test_mid_convint_path: Path,
+                    dev_high_convint_path: Path,
+                    test_high_convint_path: Path,
+                    tokenizer: Tokenizer, 
+                    train: TrainArgs) -> Tuple[DataLoader, DataLoader]:
+    
+    data.connect(train_data_path=train_data_path,
+                 dev_data_path=dev_data_path,
+                 test_data_path=test_data_path,
+                 train_mid_convint_path=train_mid_convint_path,
+                 dev_mid_convint_path=dev_mid_convint_path,
+                 test_mid_convint_path=test_mid_convint_path,
+                 dev_high_convint_path=dev_high_convint_path,
+                 test_high_convint_path=test_high_convint_path,
+                 tokenizer=tokenizer, 
+                 batch_size=train.micro_batch_size, 
+                 max_seq_length=train.max_seq_length)
+    
     with fabric.rank_zero_first():
         data.prepare_data()
     data.setup()
