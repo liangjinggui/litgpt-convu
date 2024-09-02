@@ -1,12 +1,14 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
 
-from litgpt.data.base import DataModule, SFTDataset, get_sft_collate_fn
+from litgpt.data.base import DataModule, SFTDataset, ConvINTSFTDataset, get_sft_collate_fn
+from litgpt.data.data_utils import unique_ordered_list, convert_example_to_feature_for_convint
 from litgpt.data.alpaca import Alpaca
 from litgpt.data.alpaca_2k import Alpaca2k
 from litgpt.data.alpaca_gpt4 import AlpacaGPT4
 from litgpt.data.json_data import JSON
 from litgpt.data.deita import Deita
 from litgpt.data.dolly import Dolly
+from litgpt.data.durecdial import DuRecDial
 from litgpt.data.flan import FLAN
 from litgpt.data.lima import LIMA
 from litgpt.data.lit_data import LitData
@@ -22,8 +24,10 @@ __all__ = [
     "Alpaca",
     "Alpaca2k",
     "AlpacaGPT4",
+    "ConvINTSFTDataset"
     "Deita",
     "Dolly",
+    "DuRecDial",
     "FLAN",
     "JSON",
     "LIMA",
@@ -37,4 +41,6 @@ __all__ = [
     "TinyStories",
     "MicroLlama"
     "get_sft_collate_fn",
+    "unique_ordered_list",
+    "convert_example_to_feature_for_convint",
 ]
