@@ -183,6 +183,13 @@ class Llama2FunctionCalling(PromptStyle):
         )
 
 
+class DuRecDial(PromptStyle):
+    def apply(self, prompt: str, **kwargs: str) -> str:
+        return ("Below is a target-driven conversation between the user and AI. "
+                "Please analyze the following conversation and identify the main intention of the user's latest utterance.\n\n"
+                f"### Conversation:\n{prompt}\n\n### Intention:\n")
+
+
 class Llama2(PromptStyle):
     def apply(self, prompt: str, **kwargs: str) -> str:
         b_inst, e_inst = "[INST]", "[/INST]"
@@ -333,6 +340,7 @@ prompt_styles: Dict[str, Type[PromptStyle]] = {
     "alpaca": Alpaca,
     "flan": FLAN,
     "longform": Longform,
+    "durecdial": DuRecDial,
     # Model-specific prompt styles
     "stablelm-alpha": StableLMAlpha,
     "stablelm-zephyr": StableLMZephyr,
